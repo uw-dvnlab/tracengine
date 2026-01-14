@@ -6,7 +6,7 @@ authors:
     orcid: "https://orcid.org/0000-0002-7872-7715"
 title: "TRACE: Time-series Research, Annotation, and Computation Engine"
 version: 0.1.0
-doi: 10:00000000
+doi: 10.5281/zenodo.18245733
 date-released: 2026-01-14
 url: "https://github.com/uw-dvnlab/app-trace"
 repository-code: "https://github.com/uw-dvnlab/app-trace"
