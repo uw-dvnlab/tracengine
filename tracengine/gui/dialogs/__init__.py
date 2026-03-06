@@ -10,6 +10,7 @@ from tracengine.gui.dialogs.processing import (
     DerivativeDialog,
     FilterDialog,
     AverageChannelsDialog,
+    ResampleDialog,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "DerivativeDialog",
     "FilterDialog",
     "AverageChannelsDialog",
+    "ResampleDialog",
 ]

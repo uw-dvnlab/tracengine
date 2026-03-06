@@ -18,10 +18,17 @@ import numpy as np
 from tracengine.gui.plot.plotrow import PlotRow, PlotControlPanel
 from tracengine.gui.plot.plotrow_unified import PlotRowWidget
 from tracengine.gui.plot.channel_browser import ChannelBrowser
-from tracengine.gui.dialogs import DerivativeDialog, FilterDialog, AverageChannelsDialog
+from tracengine.gui.dialogs import (
+    DerivativeDialog,
+    FilterDialog,
+    AverageChannelsDialog,
+    ResampleDialog,
+)
 from tracengine.processing.channel_utils import (
     create_derived_channel,
     create_averaged_channel,
+    resample_signal_group,
+    reset_signal_group_resample,
 )
 
 from tracengine.data.descriptors import Event
@@ -170,6 +177,7 @@ class SignalProcessingToolbar(QFrame):
     derivative_requested = pyqtSignal()
     filter_requested = pyqtSignal()
     average_requested = pyqtSignal()
+    resample_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -194,6 +202,10 @@ class SignalProcessingToolbar(QFrame):
         btn_average.clicked.connect(self.average_requested.emit)
         layout.addWidget(btn_average)
 
+        btn_resample = QPushButton("Resample Group...")
+        btn_resample.clicked.connect(self.resample_requested.emit)
+        layout.addWidget(btn_resample)
+
         layout.addStretch()
 
 
@@ -205,13 +217,14 @@ class PlotWindow(QWidget):
     manual_annotation_completed = pyqtSignal(list)  # list[Event]
     channel_provenance_changed = pyqtSignal(object)  # RunData - NEW
 
-    def __init__(self, run_objects, selected_channels):
+    def __init__(self, run_objects, selected_channels, session_path=None):
         super().__init__()
         self.runs = run_objects
         # Sort runs by metadata for consistent order
         self.runs.sort(key=lambda r: tuple(v for k, v in sorted(r.metadata.items())))
 
         self.selected_channels = selected_channels
+        self.session_path = session_path  # For reloading original data
         self.plot_widgets = []
         self.current_run_idx = 0
         self.event_items = {}  # group_name -> { event_obj_id: [items_on_plots] }
@@ -271,6 +284,7 @@ class PlotWindow(QWidget):
         self.proc_toolbar.derivative_requested.connect(self.open_derivative_dialog)
         self.proc_toolbar.filter_requested.connect(self.open_filter_dialog)
         self.proc_toolbar.average_requested.connect(self.open_average_dialog)
+        self.proc_toolbar.resample_requested.connect(self.open_resample_dialog)
         main_layout.addWidget(self.proc_toolbar)
 
         # ----------------------------
@@ -566,6 +580,133 @@ class PlotWindow(QWidget):
 
             QMessageBox.information(
                 self, "Success", f"Created averaged channel: {output_name}"
+            )
+
+    def open_resample_dialog(self):
+        """Open dialog to resample a signal group."""
+        selected = self.get_selected_rows()
+        if not selected:
+            QMessageBox.information(
+                self, "Info", "Select at least one signal plot first."
+            )
+            return
+
+        # Get the modality from the first selected row to show current Hz
+        source_channels = self._get_row_channels(selected[0])
+        current_hz = None
+        if source_channels and self.runs:
+            modality = source_channels[0][0]
+            run = self.runs[self.current_run_idx]
+            if modality in run.signals:
+                current_hz = run.signals[modality].sampling_rate
+
+        dlg = ResampleDialog(current_hz=current_hz, parent=self)
+        if dlg.exec():
+            params = dlg.get_params()
+            if params["reset_only"]:
+                self._reset_resample(selected)
+            else:
+                self.apply_resample(
+                    selected,
+                    params["target_hz"],
+                    reset_first=params["reset_first"],
+                )
+
+    def apply_resample(self, rows, target_hz, reset_first=False):
+        """Resample selected signal groups to target Hz."""
+        resampled_groups = set()
+
+        # Determine data directory for reset
+        data_dir = None
+        if reset_first and self.session_path:
+            from pathlib import Path
+
+            data_dir = Path(self.session_path) / "processed"
+
+        for row in rows:
+            source_channels = self._get_row_channels(row)
+            if not source_channels:
+                continue
+
+            for modality, _ in source_channels:
+                if modality in resampled_groups:
+                    continue  # Don't resample same group twice
+
+                for run in self.runs:
+                    try:
+                        # Reset to original data first if requested
+                        if reset_first and data_dir and data_dir.exists():
+                            try:
+                                reset_signal_group_resample(run, modality, data_dir)
+                            except (FileNotFoundError, KeyError) as e:
+                                print(f"Reset skipped for {modality}: {e}")
+
+                        resample_signal_group(
+                            run=run,
+                            group_name=modality,
+                            target_hz=target_hz,
+                        )
+                    except (KeyError, ValueError) as e:
+                        print(f"Failed to resample {modality} for run: {e}")
+                        continue
+
+                resampled_groups.add(modality)
+
+        # Refresh all plots since data changed in-place
+        if self.runs:
+            self.update_run(self.current_run_idx)
+
+        # Emit provenance changed for all runs
+        for run in self.runs:
+            self.channel_provenance_changed.emit(run)
+
+        if resampled_groups:
+            groups_str = ", ".join(sorted(resampled_groups))
+            QMessageBox.information(
+                self,
+                "Success",
+                f"Resampled {groups_str} to {target_hz} Hz",
+            )
+
+    def _reset_resample(self, rows):
+        """Reset selected signal groups to original (raw) data from disk."""
+        if not self.session_path:
+            QMessageBox.warning(self, "Error", "No session path available for reset.")
+            return
+
+        from pathlib import Path
+
+        data_dir = Path(self.session_path) / "processed"
+        if not data_dir.exists():
+            QMessageBox.warning(self, "Error", f"Data directory not found: {data_dir}")
+            return
+
+        reset_groups = set()
+        for row in rows:
+            source_channels = self._get_row_channels(row)
+            if not source_channels:
+                continue
+            for modality, _ in source_channels:
+                if modality in reset_groups:
+                    continue
+                for run in self.runs:
+                    try:
+                        reset_signal_group_resample(run, modality, data_dir)
+                    except (FileNotFoundError, KeyError) as e:
+                        print(f"Reset failed for {modality}: {e}")
+                        continue
+                reset_groups.add(modality)
+
+        if self.runs:
+            self.update_run(self.current_run_idx)
+
+        for run in self.runs:
+            self.channel_provenance_changed.emit(run)
+
+        if reset_groups:
+            groups_str = ", ".join(sorted(reset_groups))
+            QMessageBox.information(
+                self, "Success", f"Reset {groups_str} to raw sample rate"
             )
 
     def _get_row_channels(self, row) -> list[tuple[str, str]]:

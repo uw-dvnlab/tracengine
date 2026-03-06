@@ -370,3 +370,158 @@ def save_derived_channels(run: RunData, derived_dir) -> None:
     )
 
     save_channel_provenance(derived_dir, run_id, run.channel_provenance)
+
+
+# =============================================================================
+# Resample (whole SignalGroup)
+# =============================================================================
+
+
+def resample_signal_group(
+    run: RunData,
+    group_name: str,
+    target_hz: float,
+) -> None:
+    """
+    Resample an entire SignalGroup to a new uniform sampling rate.
+
+    Uses interpolation so it handles both uniform and non-uniform
+    (variable-rate) input correctly.
+
+    The SignalGroup's DataFrame is replaced in-place with the resampled
+    data and its sampling_rate is updated.
+
+    Args:
+        run: The RunData to modify
+        group_name: Name of the SignalGroup to resample
+        target_hz: Target sampling frequency in Hz
+
+    Raises:
+        KeyError: If group not found
+        ValueError: If target_hz is invalid or data is too short
+    """
+    if group_name not in run.signals:
+        raise KeyError(f"SignalGroup '{group_name}' not found in run")
+
+    if target_hz <= 0:
+        raise ValueError(f"target_hz must be positive, got {target_hz}")
+
+    signal_group = run.signals[group_name]
+    df = signal_group.data
+
+    if "utc" not in df.columns:
+        raise ValueError(f"SignalGroup '{group_name}' has no 'utc' column")
+
+    if len(df) < 2:
+        raise ValueError(f"SignalGroup '{group_name}' has fewer than 2 samples")
+
+    # Build source time axis in seconds (relative to first sample)
+    time_raw = pd.to_datetime(df["utc"], utc=True, format="mixed")
+    t_origin = time_raw.iloc[0]
+    t_sec = (time_raw - t_origin).dt.total_seconds().to_numpy()
+
+    # Build new uniform time grid at target_hz
+    duration = t_sec[-1] - t_sec[0]
+    n_new = max(int(round(duration * target_hz)) + 1, 2)
+    t_new = np.linspace(t_sec[0], t_sec[-1], n_new)
+
+    # Interpolate each numeric channel onto the new grid
+    data_channels = signal_group.list_channels()
+    new_data = {}
+
+    for col in data_channels:
+        values = df[col].to_numpy(dtype=float)
+        new_data[col] = np.interp(t_new, t_sec, values)
+
+    # Interpolate utc timestamps
+    t_raw_ns = time_raw.values.astype(np.int64)
+    t_new_ns = np.interp(t_new, t_sec, t_raw_ns.astype(float)).astype(np.int64)
+    new_utc = pd.to_datetime(t_new_ns, utc=True)
+
+    # Build new DataFrame
+    new_df = pd.DataFrame(new_data)
+    new_df.insert(0, "utc", new_utc)
+
+    # Record provenance for each channel
+    old_hz = signal_group.sampling_rate or 0
+    for col in data_channels:
+        channel_id = f"{group_name}:{col}"
+        run.channel_provenance[channel_id] = ChannelProvenance(
+            parents=[channel_id],
+            operation="resample",
+            parameters={"target_hz": target_hz, "source_hz": old_hz},
+            timestamp=datetime.now(),
+        )
+
+    # Replace in-place
+    signal_group.data = new_df
+    signal_group.sampling_rate = target_hz
+
+
+def reset_signal_group_resample(
+    run: RunData,
+    group_name: str,
+    data_dir,
+) -> None:
+    """
+    Reset a signal group to its original data from disk, clearing any
+    resample provenance.
+
+    Args:
+        run: The RunData to modify
+        group_name: Name of the SignalGroup to reset
+        data_dir: Path to the processed/ directory containing source CSVs
+    """
+    from pathlib import Path
+    from tracengine.data.loader import (
+        discover_runs,
+        extract_modality,
+        parse_modality_file,
+    )
+
+    if group_name not in run.signals:
+        raise KeyError(f"SignalGroup '{group_name}' not found in run")
+
+    data_dir = Path(data_dir)
+
+    # Find the source file for this run + modality
+    run_id = (
+        run.subject,
+        run.session,
+        run.metadata.get("task"),
+        run.metadata.get("condition"),
+        run.run,
+    )
+
+    runs = discover_runs(data_dir)
+    if run_id not in runs:
+        raise FileNotFoundError(f"Run {run_id} not found in {data_dir}")
+
+    # Find the file matching this modality
+    source_file = None
+    for f, kv, suffix in runs[run_id]:
+        modality = extract_modality(kv, suffix)
+        if modality == group_name:
+            source_file = f
+            break
+
+    if source_file is None:
+        raise FileNotFoundError(
+            f"No source file for modality '{group_name}' in {data_dir}"
+        )
+
+    # Reload original data
+    df = parse_modality_file(source_file)
+
+    signal_group = run.signals[group_name]
+    signal_group.data = df
+    signal_group.sampling_rate = signal_group.estimate_sampling_rate()
+
+    # Clear resample provenance for this group
+    to_remove = [
+        ch_id
+        for ch_id, prov in run.channel_provenance.items()
+        if prov.operation == "resample" and ch_id.startswith(f"{group_name}:")
+    ]
+    for ch_id in to_remove:
+        del run.channel_provenance[ch_id]

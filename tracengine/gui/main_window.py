@@ -364,7 +364,9 @@ class MainWindow(QMainWindow):
         # -----------------------------
         # Create the PyQtGraph plot UI
         # -----------------------------
-        self.plot_window = PlotWindow(self.run_objects, selected)
+        self.plot_window = PlotWindow(
+            self.run_objects, selected, session_path=self.session_path
+        )
 
         # Create Events Panel
         self.events_panel = EventsPanel()

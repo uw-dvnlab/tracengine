@@ -238,3 +238,66 @@ class AverageChannelsDialog(QDialog):
             "output_name": self.txt_name.text().strip(),
             "interpolate_missing": self.chk_interpolate.isChecked(),
         }
+
+
+class ResampleDialog(QDialog):
+    """Dialog for resampling an entire signal group to a target frequency."""
+
+    def __init__(self, current_hz: float | None = None, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Resample Signal Group")
+        self.setFixedWidth(320)
+
+        layout = QVBoxLayout(self)
+
+        if current_hz:
+            layout.addWidget(QLabel(f"Current rate: ~{current_hz:.1f} Hz"))
+            layout.addSpacing(4)
+
+        form = QFormLayout()
+
+        self.spin_target = QSpinBox()
+        self.spin_target.setRange(1, 10000)
+        self.spin_target.setValue(int(current_hz) if current_hz else 100)
+        self.spin_target.setSuffix(" Hz")
+        form.addRow("Target Rate:", self.spin_target)
+
+        layout.addLayout(form)
+
+        # Reset option
+        self.chk_reset = QCheckBox("Reset to original rate first")
+        self.chk_reset.setChecked(True)
+        self.chk_reset.setToolTip(
+            "Reload original data from disk before resampling.\n"
+            "Uncheck to resample the already-resampled data."
+        )
+        layout.addWidget(self.chk_reset)
+
+        self._reset_only = False
+
+        btn_layout = QHBoxLayout()
+        btn_reset = QPushButton("Reset to Raw")
+        btn_reset.setToolTip("Clear all resampling and restore original data")
+        btn_reset.clicked.connect(self._on_reset_only)
+        btn_apply = QPushButton("Apply")
+        btn_apply.clicked.connect(self.accept)
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.clicked.connect(self.reject)
+
+        btn_layout.addWidget(btn_reset)
+        btn_layout.addStretch()
+        btn_layout.addWidget(btn_cancel)
+        btn_layout.addWidget(btn_apply)
+
+        layout.addLayout(btn_layout)
+
+    def _on_reset_only(self):
+        self._reset_only = True
+        self.accept()
+
+    def get_params(self):
+        return {
+            "target_hz": self.spin_target.value(),
+            "reset_first": self.chk_reset.isChecked(),
+            "reset_only": self._reset_only,
+        }

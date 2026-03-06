@@ -428,9 +428,37 @@ def _recompute_derived_channels(run: RunData) -> None:
     """
     Recompute derived channels from provenance.
     Uses topological sort to handle chained dependencies.
+    Resample operations are applied first (group-level), then per-channel ops.
     """
     if not run.channel_provenance:
         return
+
+    # ------------------------------------------------------------------
+    # Phase 1: Apply resample operations (group-level, before per-channel)
+    # ------------------------------------------------------------------
+    from tracengine.processing.channel_utils import resample_signal_group
+
+    resampled_groups = set()
+    for channel_id, prov in run.channel_provenance.items():
+        if prov.operation != "resample":
+            continue
+        if ":" not in channel_id:
+            continue
+        group_name = channel_id.split(":", 1)[0]
+        if group_name in resampled_groups:
+            continue  # Already resampled this group
+
+        target_hz = prov.parameters.get("target_hz")
+        if target_hz and group_name in run.signals:
+            try:
+                resample_signal_group(run, group_name, target_hz)
+                resampled_groups.add(group_name)
+            except Exception as e:
+                print(f"Error resampling {group_name}: {e}")
+
+    # ------------------------------------------------------------------
+    # Phase 2: Apply per-channel operations (filters, derivatives, etc.)
+    # ------------------------------------------------------------------
 
     # Build dependency graph and sort topologically
     sorted_channels = _topological_sort_channels(run.channel_provenance)
@@ -441,6 +469,10 @@ def _recompute_derived_channels(run: RunData) -> None:
 
     for channel_id in sorted_channels:
         prov = run.channel_provenance[channel_id]
+
+        # Skip resample — already handled in Phase 1
+        if prov.operation == "resample":
+            continue
 
         # Parse channel_id -> group:name
         if ":" not in channel_id:
