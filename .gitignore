@@ -2,7 +2,7 @@
 *.egg-info
 **/__pycache__/
 notebooks/
-misc/
+#misc/
 .DS_Store
 tests/
 
@@ -29,3 +29,4 @@ Thumbs.db
 
 # research
 research/
+misc/

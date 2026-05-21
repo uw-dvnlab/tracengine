@@ -107,7 +107,7 @@ class SignalGroup:
         if len(time_raw) < 2:
             return None
 
-        dt = np.median(np.diff(time_raw.values).astype(float)) / 1e9
+        dt = np.median(np.diff(time_raw.values.astype("datetime64[ns]")).astype(np.int64)) / 1e9
         if dt <= 0:
             return None
 

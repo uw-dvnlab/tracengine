@@ -85,6 +85,8 @@ def extract_modality(kv: dict, suffix: str | None) -> str | None:
 def _get_derived_filename_base(run_id: tuple) -> str:
     """Get the base filename for derived files."""
     sub, ses, task, cond, run_num = run_id
+    # Default to "unknown" to match save behavior in main_window.py
+    cond = cond or "unknown"
     return f"sub-{sub}_ses-{ses}_task-{task}_condition-{cond}_run-{run_num}"
 
 

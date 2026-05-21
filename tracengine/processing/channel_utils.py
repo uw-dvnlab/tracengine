@@ -434,9 +434,11 @@ def resample_signal_group(
         new_data[col] = np.interp(t_new, t_sec, values)
 
     # Interpolate utc timestamps
-    t_raw_ns = time_raw.values.astype(np.int64)
+    # Cast to datetime64[ns] explicitly before int64 so this works on both
+    # pandas 2.x (assumed ns) and pandas 3.x (variable resolution).
+    t_raw_ns = time_raw.values.astype("datetime64[ns]").astype(np.int64)
     t_new_ns = np.interp(t_new, t_sec, t_raw_ns.astype(float)).astype(np.int64)
-    new_utc = pd.to_datetime(t_new_ns, utc=True)
+    new_utc = pd.to_datetime(t_new_ns, unit="ns", utc=True)
 
     # Build new DataFrame
     new_df = pd.DataFrame(new_data)
