@@ -85,13 +85,15 @@ def validate_project(path: Path) -> list[str]:
     return warnings
 
 
-def init_project(path: Path, name: str) -> ProjectConfig:
+def init_project(path: Path, name: str, device_settings: dict | None = None) -> ProjectConfig:
     """
     Initialize a new project folder structure.
 
     Args:
         path: Path to project root (will be created if doesn't exist)
         name: Project name
+        device_settings: Optional dict of device calibration settings
+                         (e.g. tablet_dpi, device_pixel_ratio)
 
     Returns:
         ProjectConfig for the new project
@@ -111,6 +113,7 @@ def init_project(path: Path, name: str) -> ProjectConfig:
         paths=paths,
         default_channel_bindings={},
         default_pipeline=None,
+        device_settings=device_settings or {},
     )
 
     # Write manifest
@@ -128,6 +131,7 @@ def init_project(path: Path, name: str) -> ProjectConfig:
         },
         "default_channel_bindings": {},
         "default_pipeline": None,
+        "device_settings": device_settings or {},
     }
 
     with open(manifest_path, "w") as f:
@@ -255,6 +259,7 @@ def _parse_project_config(root: Path, data: dict[str, Any]) -> ProjectConfig:
         default_channel_bindings=data.get("default_channel_bindings", {}),
         default_pipeline=data.get("default_pipeline"),
         version=data.get("version", "1.0"),
+        device_settings=data.get("device_settings", {}),
     )
 
 

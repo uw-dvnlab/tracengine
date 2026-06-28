@@ -96,6 +96,7 @@ class ProjectConfig:
     default_channel_bindings: dict[str, str] = field(default_factory=dict)
     default_pipeline: str | None = None
     version: str = "1.0"
+    device_settings: dict[str, Any] = field(default_factory=dict)
 
     def get_data_path(self) -> Path:
         """Get the effective data path (data_source if set, else paths.data)."""
@@ -127,4 +128,5 @@ class ProjectConfig:
             },
             "default_channel_bindings": self.default_channel_bindings,
             "default_pipeline": self.default_pipeline,
+            "device_settings": self.device_settings,
         }
