@@ -168,6 +168,11 @@ def resolve_events(
             instance_bindings = config.event_bindings[instance_name]
             if role in instance_bindings:
                 group_name = instance_bindings[role]
+                if spec.optional and group_name == "":
+                    resolved[role] = None
+                    continue
+                if spec.optional and group_name not in run.annotations:
+                    raise KeyError(f"Bound event group '{group_name}' is missing for '{role}'; rebind or select None")
                 if group_name in run.annotations:
                     resolved[role] = run.annotations[group_name]
                     binding_found = True
@@ -178,6 +183,10 @@ def resolve_events(
                     )
 
         if binding_found:
+            continue
+
+        if spec.optional:
+            resolved[role] = None
             continue
 
         # 2. Fallback: Search annotations for matching event_type (first match)

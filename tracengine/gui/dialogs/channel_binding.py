@@ -104,6 +104,8 @@ class ChannelBindingDialog(QDialog):
                 self._event_combos[role] = combo
 
                 label = f"{role} ({spec.event_type}, {spec.kind})"
+                if spec.optional:
+                    label += " — optional"
                 event_form.addRow(label + ":", combo)
 
             event_group.setLayout(event_form)
@@ -174,7 +176,10 @@ class ChannelBindingDialog(QDialog):
 
         # Populate event combos
         for role, combo in self._event_combos.items():
-            combo.addItem("-- Select Event Group --", None)
+            if self.required_events[role].optional:
+                combo.addItem("-- None --", "")
+            else:
+                combo.addItem("-- Select Event Group --", None)
             for group_name, display in all_events:
                 combo.addItem(display, group_name)
 
@@ -250,7 +255,7 @@ class ChannelBindingDialog(QDialog):
         event_bindings = {}
         for role, combo in self._event_combos.items():
             group_name = combo.currentData()
-            if group_name:
+            if group_name is not None:
                 event_bindings[role] = group_name
 
         return {

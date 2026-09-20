@@ -25,6 +25,7 @@ class EventSpec:
 
     event_type: str  # semantic type (movement, saccade, etc.)
     kind: Literal["interval", "timepoint"]
+    optional: bool = False
 
 
 @dataclass(frozen=True)
