@@ -67,14 +67,14 @@ class ComputeBase(ABC):
             run: The RunData to compute on
             instance_name: Instance name for looking up channel bindings
             export: Whether to export results to project/exports
-            project_dir: Root directory of the project (required if export=True)
+            project_dir: Project root, forwarded to compute() for settings and used for exports
             **params: Runtime parameter values (from get_parameters)
 
         Returns:
             DataFrame with computed metrics
         """
         inputs = self._resolve_inputs(run, instance_name)
-        result = self.compute(run, **inputs, **params)
+        result = self.compute(run, **inputs, project_dir=project_dir, **params)
 
         if export:
             if not project_dir:
